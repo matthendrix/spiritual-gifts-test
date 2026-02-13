@@ -1,6 +1,6 @@
 "use client";
 
-import { memo, useCallback, useEffect, useMemo, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Virtuoso } from "react-virtuoso";
 import { questions } from "@/data/questions";
 import { gifts, GiftInfo } from "@/data/gifts";
@@ -108,6 +108,7 @@ function loadSavedAnswers(): Record<string, number> {
 export default function Page() {
   const [answers, setAnswers] = useState<Record<string, number>>({});
   const [submitted, setSubmitted] = useState(false);
+  const resultRef = useRef<HTMLElement>(null);
 
   // Restore saved answers after hydration (avoids server/client mismatch)
   useEffect(() => {
@@ -148,8 +149,12 @@ export default function Page() {
       .sort((a, b) => b.score - a.score);
   }, [scores]);
 
-  const topGiftEntry = sortedGifts[0];
-  const topGift = getGiftInfo(topGiftEntry?.gift);
+  const top3 = useMemo(() => {
+    return sortedGifts.slice(0, 3).map((entry) => ({
+      ...entry,
+      info: getGiftInfo(entry.gift),
+    }));
+  }, [sortedGifts]);
 
   const handleSelect = useCallback((questionId: string, value: number) => {
     setAnswers((prev) => ({ ...prev, [questionId]: value }));
@@ -159,6 +164,10 @@ export default function Page() {
   const handleSubmit = () => {
     if (isComplete) {
       setSubmitted(true);
+      // Scroll to result after React renders it
+      setTimeout(() => {
+        resultRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+      }, 100);
     }
   };
 
@@ -180,13 +189,21 @@ export default function Page() {
           </h1>
           <p className="mx-auto mt-3 max-w-xl text-sm leading-relaxed text-stone-500">
             Answer each statement honestly. When you&rsquo;re finished, we&rsquo;ll show you the
-            spiritual gift that best matches your responses.
+            spiritual gift that best matches your responses.{" "}
+            <a
+              href="https://willowchurch.com/links-resources/"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-indigo-600 underline hover:text-indigo-800"
+            >
+              Visit Willow Church
+            </a>
           </p>
         </header>
 
         {/* Progress */}
         <section className="sticky top-0 z-10 rounded-xl border border-stone-200 bg-white p-4 shadow-sm">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-wrap items-center justify-between gap-2">
             <div>
               <p className="text-sm font-semibold text-stone-700">
                 {answeredCount} of {questions.length} answered
@@ -216,6 +233,13 @@ export default function Page() {
           </div>
         </section>
 
+        {/* Empty state nudge */}
+        {answeredCount === 0 && !submitted && (
+          <div className="rounded-xl border border-stone-200 bg-stone-50 px-5 py-4 text-sm leading-relaxed text-stone-600">
+            Start with question 1 below &mdash; take your time, your progress is saved automatically.
+          </div>
+        )}
+
         {/* Questions (virtualized) */}
         <section>
           <Virtuoso
@@ -238,22 +262,58 @@ export default function Page() {
           />
         </section>
 
-        {/* Result */}
-        {submitted && topGift && (
-          <section className="rounded-xl border border-indigo-200 bg-indigo-50 p-6">
-            <p className="text-xs font-medium uppercase tracking-widest text-indigo-500">
-              Your top gift
-            </p>
-            <h2 className="mt-2 text-2xl font-bold text-stone-900">{topGift.name}</h2>
-            <p className="mt-3 text-sm leading-relaxed text-stone-700">{topGift.description}</p>
-            {topGift.references && (
-              <p className="mt-4 text-sm text-stone-500">
-                <span className="font-medium">Scripture:</span> {topGift.references}
-              </p>
-            )}
-            <p className="mt-4 inline-block rounded-full bg-indigo-100 px-3 py-1 text-xs font-medium text-indigo-700">
-              Score: {topGiftEntry?.score ?? 0}
-            </p>
+        {/* Result — top 3 gifts */}
+        {submitted && top3.length > 0 && (
+          <section ref={resultRef} className="space-y-4">
+            {top3.map((entry, i) => {
+              const gift = entry.info;
+              if (!gift) return null;
+              const isFirst = i === 0;
+              return (
+                <div
+                  key={gift.id}
+                  className={`rounded-xl border p-6 ${
+                    isFirst
+                      ? "border-indigo-200 bg-indigo-50"
+                      : "border-stone-200 bg-white"
+                  }`}
+                >
+                  <div className="flex items-baseline gap-3">
+                    <span
+                      className={`text-xs font-medium uppercase tracking-widest ${
+                        isFirst ? "text-indigo-500" : "text-stone-400"
+                      }`}
+                    >
+                      #{i + 1}
+                    </span>
+                    <h2
+                      className={`font-bold text-stone-900 ${
+                        isFirst ? "text-2xl" : "text-lg"
+                      }`}
+                    >
+                      {gift.name}
+                    </h2>
+                    <span
+                      className={`ml-auto shrink-0 rounded-full px-3 py-1 text-xs font-medium ${
+                        isFirst
+                          ? "bg-indigo-100 text-indigo-700"
+                          : "bg-stone-100 text-stone-600"
+                      }`}
+                    >
+                      Score: {entry.score}
+                    </span>
+                  </div>
+                  <p className={`mt-3 text-sm leading-relaxed text-stone-700 ${!isFirst ? "line-clamp-3" : ""}`}>
+                    {gift.description}
+                  </p>
+                  {gift.references && (
+                    <p className="mt-3 text-sm text-stone-500">
+                      <span className="font-medium">Scripture:</span> {gift.references}
+                    </p>
+                  )}
+                </div>
+              );
+            })}
           </section>
         )}
       </div>
