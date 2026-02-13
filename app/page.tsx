@@ -1,14 +1,15 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useState } from "react";
+import { Virtuoso } from "react-virtuoso";
 import { questions } from "@/data/questions";
 import { gifts, GiftInfo } from "@/data/gifts";
 
 const ANSWER_OPTIONS = [
-  { value: 3, label: "Much", detail: "Forcefully true of me" },
-  { value: 2, label: "Some", detail: "Often hits the mark" },
-  { value: 1, label: "Little", detail: "Sometimes I notice this" },
-  { value: 0, label: "None", detail: "Not a natural pattern" },
+  { value: 3, label: "Much", detail: "Strongly true of me" },
+  { value: 2, label: "Some", detail: "Often true of me" },
+  { value: 1, label: "Little", detail: "Sometimes true of me" },
+  { value: 0, label: "None", detail: "Not true of me" },
 ];
 
 const normalize = (value: string) => value.replace(/[^a-z0-9]/gi, "").toLowerCase();
@@ -38,9 +39,94 @@ const getGiftInfo = (name?: string) => {
   return normalizedGiftLookup[normalized] ?? normalizedGiftLookup[aliasLookup[normalized]];
 };
 
+/* ------------------------------------------------------------------ */
+/*  Memoized question card                                             */
+/* ------------------------------------------------------------------ */
+
+interface QuestionCardProps {
+  question: (typeof questions)[number];
+  index: number;
+  currentValue: number | undefined;
+  onSelect: (questionId: string, value: number) => void;
+}
+
+const QuestionCard = memo(function QuestionCard({
+  question,
+  index,
+  currentValue,
+  onSelect,
+}: QuestionCardProps) {
+  return (
+    <article className="rounded-xl border border-stone-200 bg-white p-5">
+      <div className="flex items-baseline gap-3">
+        <span className="text-xs font-medium tabular-nums text-stone-400 shrink-0">
+          {index + 1} / {questions.length}
+        </span>
+        <p className="text-base font-medium text-stone-800">{question.prompt}</p>
+      </div>
+      <div className="mt-4 grid gap-2 sm:grid-cols-4">
+        {ANSWER_OPTIONS.map((option) => {
+          const isActive = currentValue === option.value;
+          return (
+            <button
+              key={option.value}
+              type="button"
+              aria-pressed={isActive}
+              onClick={() => onSelect(question.id, option.value)}
+              className={`rounded-lg border px-3 py-3 text-left transition-colors ${
+                isActive
+                  ? "border-indigo-600 bg-indigo-50 text-indigo-900"
+                  : "border-stone-200 bg-stone-50 text-stone-600 hover:border-stone-300 hover:bg-stone-100"
+              }`}
+            >
+              <span className="text-lg font-semibold">{option.value}</span>
+              <span className="ml-2 text-sm">{option.label}</span>
+              <p className="mt-0.5 text-xs text-stone-400">{option.detail}</p>
+            </button>
+          );
+        })}
+      </div>
+    </article>
+  );
+});
+
+/* ------------------------------------------------------------------ */
+/*  Page                                                               */
+/* ------------------------------------------------------------------ */
+
+const STORAGE_KEY = "spiritual-gifts-answers";
+
+function loadSavedAnswers(): Record<string, number> {
+  try {
+    const saved = localStorage.getItem(STORAGE_KEY);
+    return saved ? JSON.parse(saved) : {};
+  } catch {
+    return {};
+  }
+}
+
 export default function Page() {
   const [answers, setAnswers] = useState<Record<string, number>>({});
   const [submitted, setSubmitted] = useState(false);
+
+  // Restore saved answers after hydration (avoids server/client mismatch)
+  useEffect(() => {
+    const saved = loadSavedAnswers();
+    if (Object.keys(saved).length > 0) {
+      setAnswers(saved);
+    }
+  }, []);
+
+  // Persist answers to localStorage on every change
+  useEffect(() => {
+    try {
+      if (Object.keys(answers).length > 0) {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(answers));
+      } else {
+        localStorage.removeItem(STORAGE_KEY);
+      }
+    } catch { /* localStorage unavailable */ }
+  }, [answers]);
 
   const answeredCount = Object.keys(answers).length;
   const completion = Math.round((answeredCount / questions.length) * 100);
@@ -65,10 +151,10 @@ export default function Page() {
   const topGiftEntry = sortedGifts[0];
   const topGift = getGiftInfo(topGiftEntry?.gift);
 
-  const handleSelect = (questionId: string, value: number) => {
+  const handleSelect = useCallback((questionId: string, value: number) => {
     setAnswers((prev) => ({ ...prev, [questionId]: value }));
     setSubmitted(false);
-  };
+  }, []);
 
   const handleSubmit = () => {
     if (isComplete) {
@@ -82,108 +168,92 @@ export default function Page() {
   };
 
   return (
-    <main className="min-h-screen px-4 py-12">
-      <div className="mx-auto max-w-6xl space-y-10 rounded-3xl border border-white/10 bg-white/5 p-6 shadow-2xl shadow-slate-900/80 backdrop-blur">
-        <header className="space-y-4 text-center">
-          <p className="text-sm uppercase tracking-[0.3em] text-sky-300">Willow Church · Spiritual Gift Survey</p>
-          <h1 className="text-4xl font-semibold text-white md:text-5xl">Discover your top spiritual gift</h1>
-          <p className="mx-auto max-w-3xl text-base text-slate-300">
-            Answer each statement honestly and the experience will highlight the single gift that resonates most with your
-            calling. You can refresh and retake whenever you like.
+    <main className="min-h-screen px-4 py-10">
+      <div className="mx-auto max-w-3xl space-y-8">
+        {/* Header */}
+        <header className="text-center">
+          <p className="text-xs font-medium uppercase tracking-widest text-stone-400">
+            Willow Church
+          </p>
+          <h1 className="mt-2 text-3xl font-bold text-stone-900 sm:text-4xl">
+            Spiritual Gifts Survey
+          </h1>
+          <p className="mx-auto mt-3 max-w-xl text-sm leading-relaxed text-stone-500">
+            Answer each statement honestly. When you&rsquo;re finished, we&rsquo;ll show you the
+            spiritual gift that best matches your responses.
           </p>
         </header>
 
-        <section className="rounded-2xl border border-slate-800 bg-slate-900/60 p-5">
-          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+        {/* Progress */}
+        <section className="sticky top-0 z-10 rounded-xl border border-stone-200 bg-white p-4 shadow-sm">
+          <div className="flex items-center justify-between">
             <div>
-              <p className="text-xs uppercase tracking-[0.4em] text-slate-400">Progress</p>
-              <p className="text-lg font-semibold text-white">{completion}% answered</p>
+              <p className="text-sm font-semibold text-stone-700">
+                {answeredCount} of {questions.length} answered
+              </p>
             </div>
-            <div className="flex gap-3">
+            <div className="flex gap-2">
               <button
                 onClick={handleSubmit}
                 disabled={!isComplete}
-                className="rounded-full border border-sky-500 bg-sky-500 px-5 py-2 text-sm font-semibold uppercase tracking-widest text-slate-900 transition hover:border-sky-300 hover:bg-sky-300 disabled:cursor-not-allowed disabled:border-slate-600 disabled:bg-slate-700 disabled:text-slate-400"
+                className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-indigo-700 disabled:cursor-not-allowed disabled:bg-stone-200 disabled:text-stone-400"
               >
-                Reveal my gift
+                See my result
               </button>
               <button
                 onClick={handleReset}
-                className="rounded-full border border-white/20 px-5 py-2 text-sm font-semibold uppercase tracking-widest text-white transition hover:border-white/40"
+                className="rounded-lg border border-stone-200 px-4 py-2 text-sm font-medium text-stone-600 transition-colors hover:bg-stone-100"
               >
-                Start over
+                Reset
               </button>
             </div>
           </div>
-          <div className="mt-4 h-2 overflow-hidden rounded-full bg-slate-800">
+          <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-stone-100">
             <div
-              className="h-full rounded-full bg-gradient-to-r from-sky-400 to-emerald-400 transition-[width]"
+              className="h-full rounded-full bg-indigo-500 transition-[width]"
               style={{ width: `${completion}%` }}
             />
           </div>
-          <p className="mt-3 text-xs uppercase tracking-[0.4em] text-slate-500">
-            {answeredCount} of {questions.length} statements answered
-          </p>
         </section>
 
-        <section className="space-y-6">
-          {questions.map((question, index) => {
-            const currentValue = answers[question.id];
-            return (
-              <article
-                key={question.id}
-                className="overflow-hidden rounded-2xl border border-white/10 bg-gradient-to-br from-slate-900/70 via-slate-900 to-slate-950 p-5 shadow-lg shadow-sky-900/20"
-              >
-                <div className="flex items-center justify-between text-sm uppercase tracking-[0.35em] text-slate-500">
-                  <span>Gift {question.gift}</span>
-                  <span>#{index + 1}</span>
+        {/* Questions (virtualized) */}
+        <section>
+          <Virtuoso
+            useWindowScroll
+            totalCount={questions.length}
+            overscan={200}
+            itemContent={(index) => {
+              const question = questions[index];
+              return (
+                <div className="pb-4">
+                  <QuestionCard
+                    question={question}
+                    index={index}
+                    currentValue={answers[question.id]}
+                    onSelect={handleSelect}
+                  />
                 </div>
-                <p className="mt-3 text-lg font-semibold text-white">{question.prompt}</p>
-                <div className="mt-5 grid gap-3 md:grid-cols-4">
-                  {ANSWER_OPTIONS.map((option) => {
-                    const isActive = currentValue === option.value;
-                    return (
-                      <button
-                        key={option.value}
-                        type="button"
-                        aria-pressed={isActive}
-                        onClick={() => handleSelect(question.id, option.value)}
-                        className={`flex flex-col gap-1 rounded-2xl border px-3 py-4 text-left transition ${
-                          isActive
-                            ? "border-sky-400 bg-white/5 text-white shadow-[0_0_30px_rgba(14,165,233,0.25)]"
-                            : "border-white/5 bg-slate-900/60 text-slate-300 hover:border-sky-500/80 hover:bg-slate-900"
-                        }`}
-                      >
-                        <span className="text-2xl font-semibold">{option.value}</span>
-                        <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">{option.label}</span>
-                        <span className="text-[0.65rem] leading-tight uppercase tracking-[0.2em] text-slate-500">{option.detail}</span>
-                      </button>
-                    );
-                  })}
-                </div>
-              </article>
-            );
-          })}
+              );
+            }}
+          />
         </section>
 
+        {/* Result */}
         {submitted && topGift && (
-          <section className="rounded-3xl border border-emerald-400/60 bg-gradient-to-br from-emerald-500/10 via-slate-900 to-slate-950 p-6 shadow-2xl shadow-emerald-900/40">
-            <p className="text-xs uppercase tracking-[0.5em] text-emerald-300">Result</p>
-            <h2 className="mt-2 text-4xl font-semibold text-white">{topGift.name}</h2>
-            <p className="mt-3 text-base text-slate-200">{topGift.description}</p>
+          <section className="rounded-xl border border-indigo-200 bg-indigo-50 p-6">
+            <p className="text-xs font-medium uppercase tracking-widest text-indigo-500">
+              Your top gift
+            </p>
+            <h2 className="mt-2 text-2xl font-bold text-stone-900">{topGift.name}</h2>
+            <p className="mt-3 text-sm leading-relaxed text-stone-700">{topGift.description}</p>
             {topGift.references && (
-              <p className="mt-4 text-sm uppercase tracking-[0.35em] text-slate-400">
-                Scripture: {topGift.references}
+              <p className="mt-4 text-sm text-stone-500">
+                <span className="font-medium">Scripture:</span> {topGift.references}
               </p>
             )}
-            <div className="mt-6 flex flex-wrap gap-3">
-              <span className="rounded-full border border-emerald-300/50 bg-emerald-300/10 px-4 py-1 text-xs uppercase tracking-[0.4em] text-emerald-200">
-                Score {topGiftEntry?.score ?? 0}
-              </span>
-              <span className="rounded-full border border-white/20 px-4 py-1 text-xs uppercase tracking-[0.4em] text-white">
-                Based on real statements
-              </span>
-            </div>
+            <p className="mt-4 inline-block rounded-full bg-indigo-100 px-3 py-1 text-xs font-medium text-indigo-700">
+              Score: {topGiftEntry?.score ?? 0}
+            </p>
           </section>
         )}
       </div>
